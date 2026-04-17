@@ -1,10 +1,27 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Line, Html, Trail } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette, Noise } from '@react-three/postprocessing';
+import { OrbitControls, Line, Html, Trail, Edges } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import gsap from 'gsap';
 import axios from 'axios';
 import * as THREE from 'three';
+
+const PulsingCore = ({ color }) => {
+  const meshRef = useRef();
+  useFrame((state) => {
+    if (meshRef.current) {
+      const scale = 1 + Math.sin(state.clock.elapsedTime * 2) * 0.1;
+      meshRef.current.scale.set(scale, scale, scale);
+    }
+  });
+  return (
+    <mesh ref={meshRef} position={[0, 0.5, 0]}>
+      <icosahedronGeometry args={[0.4, 0]} />
+      <meshBasicMaterial color={color} />
+      <pointLight distance={10} intensity={2} color={color} />
+    </mesh>
+  );
+};
 
 const CityBlock = ({ node, getNodeColor }) => {
   const getSeededRandom = (seed, offset) => {
@@ -25,22 +42,26 @@ const CityBlock = ({ node, getNodeColor }) => {
   return (
     <group position={node.pos}>
       {buildings.map((b, i) => (
-        <mesh key={i} position={[b.xOff, b.height / 2, b.zOff]} castShadow receiveShadow>
+        <mesh key={i} position={[b.xOff, b.height / 2, b.zOff]}>
           <boxGeometry args={[0.8, b.height, 0.8]} />
-          <meshStandardMaterial color="#222222" roughness={1.0} />
+          <meshPhysicalMaterial 
+            color="#113355" 
+            transmission={0.9} 
+            roughness={0.1} 
+            thickness={2}
+            transparent
+            opacity={0.8}
+          />
+          <Edges color="#00ffff" opacity={0.3} transparent />
         </mesh>
       ))}
 
-      {/* Roof Neon Status Bar */}
-      <mesh position={[maxHeightBuilding.xOff, maxHeightBuilding.height + 0.1, maxHeightBuilding.zOff]}>
-        <boxGeometry args={[0.7, 0.1, 0.2]} />
-        <meshStandardMaterial color={getNodeColor(node.type)} emissive={getNodeColor(node.type)} emissiveIntensity={2} toneMapped={false} />
-      </mesh>
-
+      <PulsingCore color={getNodeColor(node.type)} />
+      
       {/* Diegetic Label */}
-      <Line points={[[0, 0, 0], [0, 5, 0]]} color="white" opacity={0.2} transparent />
+      <Line points={[[0, 0, 0], [0, 5, 0]]} color="#00ffff" opacity={0.2} transparent />
       <Html position={[0, 5, 0]} center>
-        <div style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '4px 8px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', fontFamily: 'monospace', fontSize: '10px', whiteSpace: 'nowrap', borderRadius: '4px' }}>
+        <div style={{ background: 'rgba(10, 15, 30, 0.8)', backdropFilter: 'blur(4px)', padding: '4px 8px', border: '1px solid rgba(0, 255, 255, 0.3)', color: '#00ffff', fontFamily: 'monospace', fontSize: '10px', whiteSpace: 'nowrap', borderRadius: '4px', boxShadow: '0 0 10px rgba(0, 255, 255, 0.2)' }}>
           {node.id}
         </div>
       </Html>
@@ -48,25 +69,25 @@ const CityBlock = ({ node, getNodeColor }) => {
   );
 };
 
-const AsphaltRoad = ({ start, end, isFlowing }) => {
-  const dx = end[0] - start[0];
-  const dz = end[2] - start[2];
-  const distance = Math.hypot(dx, dz);
-  const midX = (start[0] + end[0]) / 2;
-  const midZ = (start[2] + end[2]) / 2;
-  const angle = Math.atan2(dz, dx);
-
+const DataStream = ({ start, end, isFlowing }) => {
   return (
-    <group position={[midX, 0.01, midZ]} rotation={[0, -angle, 0]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[distance, 0.5]} />
-        <meshStandardMaterial color="#e0ddd5" roughness={0.9} />
-      </mesh>
+    <group>
+      {/* Faint base line */}
+      <Line
+        points={[start, end]}
+        color="#00ffff"
+        lineWidth={1.5}
+        opacity={0.3}
+        transparent
+      />
+      {/* Bright flowing line */}
       {isFlowing && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-          <planeGeometry args={[distance, 0.1]} />
-          <meshStandardMaterial color="#b026ff" emissive="#b026ff" emissiveIntensity={2} toneMapped={false} />
-        </mesh>
+        <Line
+          points={[start, end]}
+          color="#00ffff"
+          lineWidth={3}
+          toneMapped={false}
+        />
       )}
     </group>
   );
@@ -81,8 +102,8 @@ const Volunteer = ({ path }) => {
     // Kill any existing animations to prevent snapping/blinking
     gsap.killTweensOf(meshRef.current.position);
 
-    // Set truck to start position, locked strictly at y = 0.3
-    meshRef.current.position.set(path[0][0], 0.3, path[0][2]);
+    // Set truck to start position, locked strictly at y = 0.5
+    meshRef.current.position.set(path[0][0], 0.5, path[0][2]);
 
     const tl = gsap.timeline();
 
@@ -94,7 +115,7 @@ const Volunteer = ({ path }) => {
 
       tl.to(meshRef.current.position, {
         x: p[0],
-        y: 0.3,
+        y: 0.5,
         z: p[2],
         duration: segmentDuration,
         ease: "sine.inOut"
@@ -105,10 +126,10 @@ const Volunteer = ({ path }) => {
   }, [path]);
 
   return (
-    <Trail width={0.5} color={[2, 0.5, 4]} length={10} decay={1}>
+    <Trail width={0.5} color="#b026ff" length={10} decay={1}>
       <mesh ref={meshRef}>
         <boxGeometry args={[0.6, 0.6, 0.6]} />
-        <meshBasicMaterial color={[2, 0.5, 4]} />
+        <meshBasicMaterial color="#b026ff" />
       </mesh>
     </Trail>
   );
@@ -264,12 +285,14 @@ const Visualizer = () => {
           style={{
             padding: '10px 20px',
             fontSize: '16px',
-            background: '#ccff00',
-            color: 'black',
-            border: 'none',
+            background: 'rgba(10, 15, 30, 0.7)',
+            backdropFilter: 'blur(10px)',
+            color: '#00ffff',
+            border: '1px solid #00ffff',
             borderRadius: '5px',
             cursor: 'pointer',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            boxShadow: '0 0 15px rgba(0, 255, 255, 0.3)'
           }}
         >
           {isDistributing ? 'Calculating...' : 'Run Distribution'}
@@ -282,76 +305,67 @@ const Visualizer = () => {
         )}
       </div>
 
-      <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, color: 'white', fontFamily: 'monospace', width: '300px', background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(15px)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)' }}>
-        <h2 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ position: 'absolute', right: 20, top: 20, width: '300px', background: 'rgba(10, 15, 30, 0.8)', backdropFilter: 'blur(10px)', border: '1px solid rgba(0, 255, 255, 0.3)', borderRadius: '10px', padding: '20px', zIndex: 10, color: '#e0ffff', boxShadow: '0 0 20px rgba(0, 255, 255, 0.15)' }}>
+        <h2 style={{ margin: '0 0 15px 0', borderBottom: '1px solid rgba(0, 255, 255, 0.3)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
           Logistics
           <span style={{ color: '#ff4444', fontSize: '14px' }}>Waste: {perishablesData.waste_counter}</span>
         </h2>
-        <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#aaaaaa' }}>Urgent Food Batches</h3>
+        <h3 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#00ffff', textTransform: 'uppercase' }}>Urgent Food Batches</h3>
         <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '20px' }}>
           {perishablesData.batches.slice(0, 5).map((batch, idx) => {
             const timeLeft = Math.max(0, Math.floor((batch.expiry_time - Date.now() / 1000)));
             return (
-              <div key={idx} style={{ padding: '8px', borderBottom: '1px solid #333', fontSize: '12px' }}>
-                <strong>{batch.donor_id}</strong> - {batch.quantity} units<br />
-                <span style={{ color: timeLeft < 30 ? '#ff4444' : '#aaaaaa' }}>Expires in {timeLeft} sec</span>
+              <div key={idx} style={{ padding: '8px', borderBottom: '1px solid rgba(0, 255, 255, 0.1)', fontSize: '12px' }}>
+                <strong style={{ color: '#00ffff' }}>{batch.donor_id}</strong> - {batch.quantity} units<br />
+                <span style={{ color: timeLeft < 30 ? '#ff4444' : '#88ccff' }}>Expires in {timeLeft} sec</span>
               </div>
             );
           })}
         </div>
         <button
           onClick={handleSimulateDelivery}
-          style={{ width: '100%', padding: '10px', background: '#b026ff', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}
+          style={{ width: '100%', padding: '10px', background: 'rgba(176, 38, 255, 0.8)', color: 'white', border: '1px solid #b026ff', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px', boxShadow: '0 0 10px rgba(176, 38, 255, 0.5)' }}
         >
           Simulate Urgent Delivery
         </button>
         <button
           onClick={handleStressTest}
-          style={{ width: '100%', padding: '10px', background: 'transparent', color: '#ff4444', border: '1px solid #ff4444', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}
+          style={{ width: '100%', padding: '10px', background: 'rgba(255, 68, 68, 0.1)', color: '#ff4444', border: '1px solid #ff4444', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 0 10px rgba(255, 68, 68, 0.2)' }}
         >
           Run Stress Test
         </button>
       </div>
 
       {/* Bottom Summary Dashboard */}
-      <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 10, color: 'white', fontFamily: 'monospace', width: '600px', background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(15px)', padding: '15px 30px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 10, color: '#e0ffff', fontFamily: 'monospace', width: '600px', background: 'rgba(10, 15, 30, 0.8)', backdropFilter: 'blur(10px)', padding: '15px 30px', borderRadius: '10px', border: '1px solid rgba(0, 255, 255, 0.3)', boxShadow: '0 0 20px rgba(0, 255, 255, 0.15)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase' }}>Efficiency Score</div>
-          <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ccff00' }}>
+          <div style={{ fontSize: '12px', color: '#00ffff', textTransform: 'uppercase' }}>Efficiency Score</div>
+          <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#00ffff' }}>
             {perishablesData.total_generated > 0 ? Math.round((perishablesData.total_delivered / perishablesData.total_generated) * 100) : 0}%
           </div>
-          <div style={{ fontSize: '12px', color: '#888' }}>
+          <div style={{ fontSize: '12px', color: '#88ccff' }}>
             Delivered: {perishablesData.total_delivered} / Generated: {perishablesData.total_generated}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase' }}>Algorithm Performance</div>
+          <div style={{ fontSize: '12px', color: '#00ffff', textTransform: 'uppercase' }}>Algorithm Performance</div>
           <div style={{ fontSize: '14px', margin: '4px 0' }}>Edmonds-Karp: <strong style={{ color: '#fff' }}>{algoStats.edmondsMs || 0} ms</strong></div>
           <div style={{ fontSize: '14px' }}>A* Search: <strong style={{ color: '#fff' }}>{algoStats.aStarMs || 0} ms</strong></div>
         </div>
       </div>
 
-      <Canvas camera={{ position: [20, 20, 20], fov: 60 }} shadows={{ type: THREE.PCFShadowMap }}>
-        <color attach="background" args={['#050505']} />
-        <fog attach="fog" args={['#0a0a0c', 10, 50]} />
-
-        <ambientLight intensity={0.5} />
+      <Canvas camera={{ position: [15, 10, 20], fov: 60 }} shadows={{ type: THREE.PCFShadowMap }}>
+        <color attach="background" args={['#01020a']} />
+        
+        <ambientLight intensity={0.2} />
         <directionalLight
           position={[10, 20, 10]}
-          intensity={2}
-          castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          intensity={0.5}
         />
-
+        
         <OrbitControls makeDefault />
-
-        <gridHelper args={[100, 50, '#333333', '#222222']} position={[0, 0.01, 0]} />
-
-        <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-          <planeGeometry args={[100, 100]} />
-          <meshStandardMaterial color="#0a0a0a" roughness={0.9} metalness={0.2} />
-        </mesh>
+        
+        <gridHelper args={[100, 50, '#112233', '#050a10']} position={[0, -0.01, 0]} />
 
         {/* Render Nodes (Procedural Cities) */}
         {graph.nodes.map((node) => (
@@ -376,7 +390,7 @@ const Visualizer = () => {
           }
 
           return (
-            <AsphaltRoad
+            <DataStream
               key={index}
               start={sourceNode.pos}
               end={targetNode.pos}
@@ -401,9 +415,7 @@ const Visualizer = () => {
         )}
 
         <EffectComposer>
-          <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.9} height={300} intensity={1.5} />
-          <Vignette eskil={false} offset={0.1} darkness={1.1} />
-          <Noise opacity={0.05} />
+          <Bloom luminanceThreshold={0.2} luminanceSmoothing={0.9} height={300} intensity={1.5} />
         </EffectComposer>
       </Canvas>
     </div>
