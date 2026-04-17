@@ -1,6 +1,7 @@
 import random
 import time
 import heapq
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import networkx as nx
@@ -46,6 +47,9 @@ types = ["Restaurant", "Shelter", "Hub"]
 
 food_batches = []
 batch_counter = 1
+waste_counter = 0
+total_generated = 0
+total_delivered = 0
 
 # Add nodes with fixed positions, types, supply, and demand
 for landmark in landmarks:
@@ -54,9 +58,10 @@ for landmark in landmarks:
     demand = random.randint(10, 50) if node_type == "Shelter" else 0
     
     if node_type == "Restaurant":
-        expiry = int(time.time()) + random.randint(3600, 86400) # Expire in 1-24 hours
+        expiry = int(time.time()) + random.randint(15, 60) # Expire in 15-60 SECONDS for fast simulation
         batch = FoodBatch(expiry, batch_counter, supply, landmark)
         heapq.heappush(food_batches, batch)
+        total_generated += supply
         batch_counter += 1
         
     G.add_node(
@@ -75,6 +80,20 @@ for i in range(len(landmarks)):
             capacity = random.randint(10, 30)
             G.add_edge(landmarks[i], landmarks[j], distance=distance, capacity=capacity)
 
+async def tick_loop():
+    global waste_counter
+    while True:
+        await asyncio.sleep(1)
+        current_time = int(time.time())
+        # Check top of heap
+        while food_batches and food_batches[0].expiry_time <= current_time:
+            heapq.heappop(food_batches)
+            waste_counter += 1
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(tick_loop())
+
 @app.get("/api/map")
 def get_map():
     # Convert graph data to a JSON serializable format
@@ -85,15 +104,55 @@ def get_map():
 @app.get("/api/distribute")
 def distribute_food():
     # Run the Edmonds-Karp algorithm manually
+    start_time = time.perf_counter()
     result = run_edmonds_karp(G)
+    end_time = time.perf_counter()
+    result["time_ms"] = round((end_time - start_time) * 1000, 2)
     return result
 
 @app.get("/api/perishables")
 def get_perishables():
-    # Return sorted (by urgency) list of food batches
+    # Return sorted (by urgency) list of food batches and the waste counter
     sorted_batches = sorted(food_batches)
-    return [b.to_dict() for b in sorted_batches]
+    return {
+        "batches": [b.to_dict() for b in sorted_batches],
+        "waste_counter": waste_counter,
+        "total_generated": total_generated,
+        "total_delivered": total_delivered
+    }
 
 @app.get("/api/navigate")
 def navigate(start: str, end: str):
-    return a_star_search(G, start, end)
+    start_time = time.perf_counter()
+    result = a_star_search(G, start, end)
+    end_time = time.perf_counter()
+    result["time_ms"] = round((end_time - start_time) * 1000, 2)
+    return result
+
+@app.post("/api/stress_test")
+def stress_test():
+    global batch_counter, total_generated
+    restaurants = [n for n, d in G.nodes(data=True) if d['type'] == 'Restaurant']
+    if not restaurants: return {"status": "No restaurants found"}
+    
+    for _ in range(5):
+        donor = random.choice(restaurants)
+        supply = random.randint(20, 100)
+        expiry = int(time.time()) + random.randint(15, 60)
+        batch = FoodBatch(expiry, batch_counter, supply, donor)
+        heapq.heappush(food_batches, batch)
+        total_generated += supply
+        batch_counter += 1
+    return {"status": "success"}
+
+@app.post("/api/execute_delivery")
+def execute_delivery(batch_id: int):
+    global total_delivered
+    for i, batch in enumerate(food_batches):
+        if batch.batch_id == batch_id:
+            total_delivered += batch.quantity
+            # Remove from list and re-heapify
+            food_batches.pop(i)
+            heapq.heapify(food_batches)
+            return {"status": "success"}
+    return {"status": "not_found"}
