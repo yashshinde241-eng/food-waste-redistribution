@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Line, Html, Trail, Edges } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -29,11 +29,11 @@ const CityBlock = ({ node, getNodeColor }) => {
     return x - Math.floor(x);
   };
 
-  const buildingCount = node.type === 'Hub' ? 1 : 4;
+  const buildingCount = node.type === 'Hub' ? 1 : Math.floor(4 + getSeededRandom(node.id, 99) * 5);
   const buildings = Array.from({ length: buildingCount }).map((_, i) => {
-    const height = 1 + getSeededRandom(node.id, i) * 3;
-    const xOff = (getSeededRandom(node.id, i + 10) - 0.5) * 1.5;
-    const zOff = (getSeededRandom(node.id, i + 20) - 0.5) * 1.5;
+    const height = 1 + getSeededRandom(node.id, i) * 4;
+    const xOff = (getSeededRandom(node.id, i + 10) - 0.5) * 3;
+    const zOff = (getSeededRandom(node.id, i + 20) - 0.5) * 3;
     return { height, xOff, zOff };
   });
 
@@ -70,22 +70,43 @@ const CityBlock = ({ node, getNodeColor }) => {
 };
 
 const DataStream = ({ start, end, isFlowing }) => {
+  const lineRef = useRef();
+
+  useFrame((state, delta) => {
+    if (isFlowing && lineRef.current) {
+      lineRef.current.material.dashOffset -= delta * 10;
+    }
+  });
+
+  // 90-degree turn to simulate city grid roads
+  const pathPoints = [
+    start,
+    [end[0], start[1], start[2]],
+    end
+  ];
+
   return (
     <group>
       {/* Faint base line */}
       <Line
-        points={[start, end]}
+        points={pathPoints}
         color="#00ffff"
-        lineWidth={1.5}
-        opacity={0.3}
+        lineWidth={2}
+        opacity={0.4}
         transparent
       />
       {/* Bright flowing line */}
       {isFlowing && (
         <Line
-          points={[start, end]}
-          color="#00ffff"
-          lineWidth={3}
+          ref={lineRef}
+          points={pathPoints}
+          color="#b026ff"
+          lineWidth={4}
+          dashed
+          dashScale={10}
+          dashSize={1}
+          dashOffset={0}
+          gapSize={1}
           toneMapped={false}
         />
       )}
@@ -110,16 +131,29 @@ const Volunteer = ({ path }) => {
     for (let i = 1; i < path.length; i++) {
       const p = path[i];
       const prev = path[i - 1];
-      const distance = Math.hypot(p[0] - prev[0], p[2] - prev[2]);
-      const segmentDuration = distance * 0.2;
+      
+      const dist1 = Math.abs(p[0] - prev[0]);
+      const dist2 = Math.abs(p[2] - prev[2]);
 
-      tl.to(meshRef.current.position, {
-        x: p[0],
-        y: 0.5,
-        z: p[2],
-        duration: segmentDuration,
-        ease: "sine.inOut"
-      });
+      // Move along X axis first to follow the 90-deg L-shape road
+      if (dist1 > 0) {
+        tl.to(meshRef.current.position, {
+          x: p[0],
+          z: prev[2],
+          duration: dist1 * 0.2,
+          ease: "power1.inOut"
+        });
+      }
+      
+      // Then move along Z axis
+      if (dist2 > 0) {
+        tl.to(meshRef.current.position, {
+          x: p[0],
+          z: p[2],
+          duration: dist2 * 0.2,
+          ease: "power1.inOut"
+        });
+      }
     }
 
     // Do NOT kill the timeline on unmount. The ref persists and killTweensOf handles cleanup.
@@ -268,6 +302,24 @@ const Visualizer = () => {
     }
   };
 
+  const expandedDeliveryPath = useMemo(() => {
+    if (!deliveryPath) return null;
+    const pts = [];
+    for (let i = 0; i < deliveryPath.length; i++) {
+      if (i === 0) {
+        pts.push([deliveryPath[i][0], 0.5, deliveryPath[i][2]]);
+      } else {
+        const p = deliveryPath[i];
+        const prev = deliveryPath[i - 1];
+        // Add the 90-degree corner point
+        pts.push([p[0], 0.5, prev[2]]);
+        // Add the destination node point
+        pts.push([p[0], 0.5, p[2]]);
+      }
+    }
+    return pts;
+  }, [deliveryPath]);
+
   const handleStressTest = async () => {
     try {
       await axios.post('/api/stress_test');
@@ -400,10 +452,10 @@ const Visualizer = () => {
         })}
 
         {/* Render Delivery Path and Volunteer */}
-        {deliveryPath && (
+        {expandedDeliveryPath && (
           <>
             <Line
-              points={deliveryPath}
+              points={expandedDeliveryPath}
               color={[2, 0.5, 4]} // Neon Purple bloom
               lineWidth={5}
               opacity={0.8}

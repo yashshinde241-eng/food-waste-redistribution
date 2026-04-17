@@ -35,11 +35,18 @@ app.add_middleware(
 # Initialize the graph
 G = nx.Graph()
 
-# Define Pune landmarks and fixed positions
+# Define Pune landmarks and fixed positions (Spaced out for a clean, non-overlapping grid)
 fixed_positions = {
-    "Kothrud": (-5, 0, 5), "Viman Nagar": (8, 0, -6), "Hinjewadi": (-10, 0, -8),
-    "Magarpatta": (10, 0, 2), "Baner": (-7, 0, -4), "Deccan Gymkhana": (-1, 0, 1),
-    "Swargate": (1, 0, 6), "Hadapsar": (9, 0, 5), "Pashan": (-8, 0, 0), "Koregaon Park": (5, 0, -2)
+    # North West
+    "Hinjewadi": (-24, 0, -20), "Wakad": (-16, 0, -18), "Baner": (-10, 0, -14), "Aundh": (-4, 0, -12),
+    # North East
+    "Viman Nagar": (14, 0, -18), "Kharadi": (24, 0, -16), "Kalyani Nagar": (8, 0, -12), "Yerawada": (18, 0, -8),
+    # West
+    "Pashan": (-20, 0, -4), "Bavdhan": (-16, 0, 4), "Kothrud": (-22, 0, 12), "Warje": (-14, 0, 18),
+    # Center
+    "Shivajinagar": (0, 0, -4), "Deccan Gymkhana": (-6, 0, 2), "Camp": (6, 0, 4), "Koregaon Park": (12, 0, -2),
+    # South / South East
+    "Swargate": (0, 0, 14), "Katraj": (2, 0, 24), "Magarpatta": (20, 0, 6), "Hadapsar": (24, 0, 16)
 }
 
 landmarks = list(fixed_positions.keys())
@@ -72,13 +79,21 @@ for landmark in landmarks:
         demand=demand
     )
 
-# Add some random weighted edges (Roads) with capacity
+# Add roads: Connect each node to its 3 nearest neighbors to create a clean city grid
 for i in range(len(landmarks)):
-    for j in range(i + 1, len(landmarks)):
-        if random.random() < 0.3:  # 30% chance of a road between any two points
-            distance = random.uniform(1.0, 15.0)
-            capacity = random.randint(10, 30)
-            G.add_edge(landmarks[i], landmarks[j], distance=distance, capacity=capacity)
+    distances = []
+    for j in range(len(landmarks)):
+        if i != j:
+            p1 = fixed_positions[landmarks[i]]
+            p2 = fixed_positions[landmarks[j]]
+            dist = ((p1[0] - p2[0])**2 + (p1[2] - p2[2])**2) ** 0.5
+            distances.append((dist, j))
+    distances.sort()
+    for k in range(3):
+        neighbor_idx = distances[k][1]
+        dist = distances[k][0]
+        capacity = random.randint(10, 30)
+        G.add_edge(landmarks[i], landmarks[neighbor_idx], distance=dist, capacity=capacity)
 
 async def tick_loop():
     global waste_counter
