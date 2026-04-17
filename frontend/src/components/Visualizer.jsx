@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Line, Html, Trail, Edges } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import gsap from 'gsap';
@@ -29,7 +29,7 @@ const CityBlock = ({ node, getNodeColor }) => {
     return x - Math.floor(x);
   };
 
-  const buildingCount = node.type === 'Hub' ? 1 : Math.floor(4 + getSeededRandom(node.id, 99) * 5);
+  const buildingCount = Math.floor(3 + getSeededRandom(node.id, 99) * 4); // Always 3 to 6 buildings
   const buildings = Array.from({ length: buildingCount }).map((_, i) => {
     const height = 1 + getSeededRandom(node.id, i) * 4;
     const xOff = (getSeededRandom(node.id, i + 10) - 0.5) * 3;
@@ -114,8 +114,9 @@ const DataStream = ({ start, end, isFlowing }) => {
   );
 };
 
-const Volunteer = ({ path }) => {
+const Volunteer = ({ path, isCinematicMode }) => {
   const meshRef = useRef();
+  const { camera } = useThree();
 
   useEffect(() => {
     if (!path || path.length < 2 || !meshRef.current) return;
@@ -159,6 +160,15 @@ const Volunteer = ({ path }) => {
     // Do NOT kill the timeline on unmount. The ref persists and killTweensOf handles cleanup.
   }, [path]);
 
+  useFrame((state, delta) => {
+    if (isCinematicMode && meshRef.current) {
+      const truckPos = meshRef.current.position;
+      const targetPos = new THREE.Vector3(truckPos.x, truckPos.y + 5, truckPos.z + 8);
+      camera.position.lerp(targetPos, delta * 5);
+      camera.lookAt(truckPos);
+    }
+  });
+
   return (
     <Trail width={0.5} color="#b026ff" length={10} decay={1}>
       <mesh ref={meshRef}>
@@ -199,6 +209,7 @@ const Visualizer = () => {
   const [deliveryPath, setDeliveryPath] = useState(null);
   const [algoStats, setAlgoStats] = useState({ aStarMs: 0, edmondsMs: 0 });
   const [pings, setPings] = useState([]);
+  const [isCinematicMode, setIsCinematicMode] = useState(false);
   const prevBatchesRef = useRef([]);
 
   useEffect(() => {
@@ -375,6 +386,12 @@ const Visualizer = () => {
           })}
         </div>
         <button
+          onClick={() => setIsCinematicMode(!isCinematicMode)}
+          style={{ width: '100%', padding: '10px', background: isCinematicMode ? 'rgba(0, 255, 255, 0.2)' : 'rgba(10, 15, 30, 0.8)', color: '#00ffff', border: '1px solid #00ffff', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px', boxShadow: isCinematicMode ? '0 0 15px rgba(0, 255, 255, 0.5)' : 'none' }}
+        >
+          {isCinematicMode ? 'Disable Cinematic Mode' : 'Enable Cinematic Mode'}
+        </button>
+        <button
           onClick={handleSimulateDelivery}
           style={{ width: '100%', padding: '10px', background: 'rgba(176, 38, 255, 0.8)', color: 'white', border: '1px solid #b026ff', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px', boxShadow: '0 0 10px rgba(176, 38, 255, 0.5)' }}
         >
@@ -415,7 +432,7 @@ const Visualizer = () => {
           intensity={0.5}
         />
         
-        <OrbitControls makeDefault />
+        <OrbitControls makeDefault enabled={!isCinematicMode} />
         
         <gridHelper args={[100, 50, '#112233', '#050a10']} position={[0, -0.01, 0]} />
 
@@ -462,7 +479,7 @@ const Visualizer = () => {
               transparent
               toneMapped={false}
             />
-            <Volunteer path={deliveryPath} />
+            <Volunteer path={deliveryPath} isCinematicMode={isCinematicMode} />
           </>
         )}
 
